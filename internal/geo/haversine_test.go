@@ -76,6 +76,7 @@ func TestHaversineKm_Symmetric(t *testing.T) {
 
 			ab := HaversineKm(p.a, p.b)
 			ba := HaversineKm(p.b, p.a)
+
 			if math.Abs(ab-ba) > distEpsilon {
 				t.Errorf("asymmetry: ab=%.12f ba=%.12f (Δ=%g)", ab, ba, math.Abs(ab-ba))
 			}

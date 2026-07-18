@@ -25,5 +25,6 @@ func HaversineKm(a, b LatLng) float64 {
 	sinDLng := math.Sin(dLng / 2)
 	h := sinDLat*sinDLat +
 		math.Cos(toRad(a.Lat))*math.Cos(toRad(b.Lat))*sinDLng*sinDLng
+
 	return 2 * EarthRadiusKm * math.Asin(math.Sqrt(h))
 }
