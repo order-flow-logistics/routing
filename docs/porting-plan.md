@@ -349,36 +349,46 @@ Constructors that can fail validation return `(*T, error)` and validate in the o
 
 ### 3.4 Concurrency: parallel matrix (the headline win)
 
-One goroutine per source waypoint runs Dijkstra; rows are disjoint so no locking. Use `errgroup` with `SetLimit` rather
-than a hand-rolled `sync.WaitGroup` + semaphore — it propagates the first error, cancels siblings via context, and
-bounds concurrency in one call (`golang-concurrency`, `golang-context`):
+One goroutine per source waypoint runs Dijkstra; rows are disjoint so no locking. The pure core stays **stdlib-only**
+(`sync.WaitGroup` + a buffered channel as a semaphore) rather than `errgroup`: Dijkstra is pure in-memory computation
+that never returns an error, so there is no error to propagate, and keeping `geo` zero-dependency is the whole point of
+the pure-core boundary (§3.1). `ComputeMatrix` therefore returns just `*Matrix`, no `error`, no `context` — cancellation
+and timeouts live one layer up in the orchestrator (`golang-concurrency`). Implemented in `internal/geo/matrix.go`:
 
 ```go
-func ComputeMatrix(ctx context.Context, g *Graph, srcIDs []int64, wantPaths bool, limit int) (*Matrix, error) {
-n := len(srcIDs)
-m := &Matrix{Dist: make([][]float64, n), Paths: make([][][]int64, n)}
+func ComputeMatrix(g *Graph, waypointIDs []int64, wantPaths bool, concurrency int) *Matrix {
+	n := len(waypointIDs)
+	m := &Matrix{Dist: make([][]float64, n)}
+	if wantPaths {
+		m.Paths = make([][][]int64, n)
+	}
+	if concurrency <= 0 {
+		concurrency = runtime.NumCPU()
+	}
 
-grp, ctx := errgroup.WithContext(ctx)
-grp.SetLimit(limit) // bound to configured concurrency (default runtime.NumCPU())
-for i := range srcIDs {
-i := i
-grp.Go(func () error {
-if err := ctx.Err(); err != nil { // honour cancellation between sources
-return err
-}
-m.Dist[i], m.Paths[i] = g.singleSourceRow(srcIDs, i, wantPaths)
-return nil
-})
-}
-if err := grp.Wait(); err != nil {
-return nil, err
-}
-return m, nil
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, concurrency)
+	for i := range waypointIDs {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			dist, paths := singleSourceRow(g, waypointIDs, i, wantPaths)
+			m.Dist[i] = dist
+			if wantPaths {
+				m.Paths[i] = paths
+			}
+		}()
+	}
+	wg.Wait()
+	return m
 }
 ```
 
-- **Group-level fan-out** — independent org groups also compute concurrently; the OSM graph is fetched once for the
-  shared bbox, then shared read-only across goroutines (no mutation after build ⇒ safe without locks).
+- **Group-level fan-out** — independent org groups also compute concurrently in the orchestrator; the OSM graph is
+  fetched once for the shared bbox, then shared read-only across goroutines (no mutation after build ⇒ safe without
+  locks). That fan-out is where `errgroup` + `context` *do* belong, because it wraps I/O (Overpass/OSRM) that can fail.
 - **Determinism preserved.** Parallelism is over *disjoint output rows* and independent groups; within a source,
   Dijkstra and Held-Karp run exactly as in TS. Concurrency does not affect the produced ordering — golden parity (§5)
   still holds.
