@@ -1,6 +1,4 @@
-// Package geo provides the pure geometric and graph primitives for routing:
-// haversine distance, the OSM road graph, Dijkstra, and the distance matrix.
-// It has zero non-stdlib dependencies and does no I/O, so it stays deterministic
+// Package geo holds the pure, I/O-free geo and graph primitives for routing.
 package geo
 
 import "math"
@@ -16,8 +14,7 @@ type LatLng struct {
 
 func toRad(deg float64) float64 { return deg * (math.Pi / 180) }
 
-// HaversineKm returns the great-circle distance in km between a and b.
-// It mirrors the TS haversineKm formula op-for-op so results stay within epsilon.
+// HaversineKm mirrors TS haversineKm op-for-op so results stay within epsilon.
 func HaversineKm(a, b LatLng) float64 {
 	dLat := toRad(b.Lat - a.Lat)
 	dLng := toRad(b.Lng - a.Lng)
